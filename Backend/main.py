@@ -3,7 +3,8 @@ from utils import *
 from dotenv import load_dotenv
 
 # Load environment variables
-load_dotenv("../.env")
+load_dotenv()
+# load_dotenv("../.env")
 # Check if all required environment variables are set
 # This must happen before importing video which uses API keys without checking
 check_env_vars()
@@ -34,7 +35,7 @@ CORS(app)
 # Constants
 HOST = "0.0.0.0"
 PORT = 8080
-AMOUNT_OF_STOCK_VIDEOS = 5
+AMOUNT_OF_STOCK_VIDEOS = 10
 GENERATING = False
 
 
@@ -56,7 +57,9 @@ def generate():
         paragraph_number = int(data.get('paragraphNumber', 1))  # Default to 1 if not provided
         ai_model = data.get('aiModel')  # Get the AI model selected by the user
         n_threads = data.get('threads')  # Amount of threads to use for video generation
-        subtitles_position = data.get('subtitlesPosition')  # Position of the subtitles in the video
+        subtitles_position = data.get('subtitlesPosition', "center,bottom")
+        if "," not in subtitles_position:
+             subtitles_position = "center,bottom"
         text_color = data.get('color') # Color of subtitle text
 
         # Get 'useMusic' from the request data and default to False if not provided
@@ -225,12 +228,23 @@ def generate():
         # Concatenate videos
         temp_audio = AudioFileClip(tts_path)
         combined_video_path = combine_videos(video_paths, temp_audio.duration, 5, n_threads or 2)
-
+        if subtitles_path is None:
+            raise ValueError("Subtitle generation failed. Cannot proceed without subtitles.")
         # Put everything together
         try:
-            final_video_path = generate_video(combined_video_path, tts_path, subtitles_path, n_threads or 2, subtitles_position, text_color or "#FFFF00")
+            final_video_path = generate_video(
+                combined_video_path,
+                tts_path,
+                subtitles_path,
+                n_threads or 2,
+                subtitles_position,
+                text_color or "#FFFF00"
+            )
         except Exception as e:
             print(colored(f"[-] Error generating final video: {e}", "red"))
+            print(colored(f"[DEBUG] combined_video_path: {combined_video_path}", "red"))
+            print(colored(f"[DEBUG] tts_path: {tts_path}", "red"))
+            print(colored(f"[DEBUG] subtitles_path: {subtitles_path}", "red"))
             final_video_path = None
 
         # Define metadata for the video, we will display this to the user, and use it for the YouTube upload

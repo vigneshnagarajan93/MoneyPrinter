@@ -9,6 +9,8 @@ from g4f.client import Client
 from termcolor import colored
 from dotenv import load_dotenv
 from typing import Tuple, List
+import httpx  # <-- you must also import this at the top
+
 
 # Load environment variables
 load_dotenv("../.env")
@@ -17,143 +19,71 @@ load_dotenv("../.env")
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 openai.api_key = OPENAI_API_KEY
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 genai.configure(api_key=GOOGLE_API_KEY)
 
 
 def generate_response(prompt: str, ai_model: str) -> str:
+    import openai
+    import os
+
+    client = openai.OpenAI(
+        api_key=os.getenv("OPENROUTER_API_KEY"),
+        base_url="https://openrouter.ai/api/v1"
+    )
+
+    response = client.chat.completions.create(
+        model=ai_model,
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    return response.choices[0].message.content
+
+def generate_script(topic, paragraph_number, ai_model, voice, custom_prompt=None):
     """
-    Generate a script for a video, depending on the subject of the video.
-
-    Args:
-        video_subject (str): The subject of the video.
-        ai_model (str): The AI model to use for generation.
-
-
-    Returns:
-
-        str: The response from the AI model.
-
+    Generates a script using OpenRouter (OpenAI-compatible API).
+    Cleans response by extracting only main paragraph content and strips out search term JSON block.
     """
+    import httpx
+    system_prompt = "You are a helpful assistant who generates engaging and informative scripts for short-form videos."
 
-    if ai_model == 'g4f':
-        # Newest G4F Architecture
-        client = Client()
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            provider=g4f.Provider.You, 
-            messages=[{"role": "user", "content": prompt}],
-        ).choices[0].message.content
+    user_prompt = custom_prompt if custom_prompt else f"Explain in {paragraph_number} paragraph(s) why {topic} is trending and why Gen Z finds it interesting."
 
-    elif ai_model in ["gpt3.5-turbo", "gpt4"]:
+    payload = {
+        "model": ai_model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+    }
 
-        model_name = "gpt-3.5-turbo" if ai_model == "gpt3.5-turbo" else "gpt-4-1106-preview"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json"
+    }
 
-        response = openai.chat.completions.create(
+    response = httpx.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers)
+    response.raise_for_status()
 
-            model=model_name,
+    full_text = response.json()["choices"][0]["message"]["content"]
 
-            messages=[{"role": "user", "content": prompt}],
+    # Clean up common prefixes like "Script": or similar
+    cleaned = re.sub(r'^["\']?script["\']?\s*:\s*', '', full_text, flags=re.IGNORECASE).strip()
 
-        ).choices[0].message.content
-    elif ai_model == 'gemmini':
-        model = genai.GenerativeModel('gemini-pro')
-        response_model = model.generate_content(prompt)
-        response = response_model.text
+    # Only keep first block of text, excluding search terms / lists
+    split_markers = ["\n\n", "\n- ", "[", "```", "Search terms", "search_term", "video_name"]
+    split_index = len(cleaned)
+    for marker in split_markers:
+        idx = cleaned.find(marker)
+        if idx != -1:
+            split_index = min(split_index, idx)
 
-    else:
+    cleaned_script = cleaned[:split_index].strip()
 
-        raise ValueError("Invalid AI model selected.")
+    print("\n[Full GPT Response for Debugging]\n", full_text)
+    print("\n[Cleaned Script for TTS/Subtitles]\n", cleaned_script)
 
-    return response
-
-def generate_script(video_subject: str, paragraph_number: int, ai_model: str, voice: str, customPrompt: str) -> str:
-
-    """
-    Generate a script for a video, depending on the subject of the video, the number of paragraphs, and the AI model.
-
-
-
-    Args:
-
-        video_subject (str): The subject of the video.
-
-        paragraph_number (int): The number of paragraphs to generate.
-
-        ai_model (str): The AI model to use for generation.
-
-
-
-    Returns:
-
-        str: The script for the video.
-
-    """
-
-    # Build prompt
-    
-    if customPrompt:
-        prompt = customPrompt
-    else:
-        prompt = """
-            Generate a script for a video, depending on the subject of the video.
-
-            The script is to be returned as a string with the specified number of paragraphs.
-
-            Here is an example of a string:
-            "This is an example string."
-
-            Do not under any circumstance reference this prompt in your response.
-
-            Get straight to the point, don't start with unnecessary things like, "welcome to this video".
-
-            Obviously, the script should be related to the subject of the video.
-
-            YOU MUST NOT INCLUDE ANY TYPE OF MARKDOWN OR FORMATTING IN THE SCRIPT, NEVER USE A TITLE.
-            YOU MUST WRITE THE SCRIPT IN THE LANGUAGE SPECIFIED IN [LANGUAGE].
-            ONLY RETURN THE RAW CONTENT OF THE SCRIPT. DO NOT INCLUDE "VOICEOVER", "NARRATOR" OR SIMILAR INDICATORS OF WHAT SHOULD BE SPOKEN AT THE BEGINNING OF EACH PARAGRAPH OR LINE. YOU MUST NOT MENTION THE PROMPT, OR ANYTHING ABOUT THE SCRIPT ITSELF. ALSO, NEVER TALK ABOUT THE AMOUNT OF PARAGRAPHS OR LINES. JUST WRITE THE SCRIPT.
-
-        """
-
-    prompt += f"""
-    
-    Subject: {video_subject}
-    Number of paragraphs: {paragraph_number}
-    Language: {voice}
-
-    """
-
-    # Generate script
-    response = generate_response(prompt, ai_model)
-
-    print(colored(response, "cyan"))
-
-    # Return the generated script
-    if response:
-        # Clean the script
-        # Remove asterisks, hashes
-        response = response.replace("*", "")
-        response = response.replace("#", "")
-
-        # Remove markdown syntax
-        response = re.sub(r"\[.*\]", "", response)
-        response = re.sub(r"\(.*\)", "", response)
-
-        # Split the script into paragraphs
-        paragraphs = response.split("\n\n")
-
-        # Select the specified number of paragraphs
-        selected_paragraphs = paragraphs[:paragraph_number]
-
-        # Join the selected paragraphs into a single string
-        final_script = "\n\n".join(selected_paragraphs)
-
-        # Print to console the number of paragraphs used
-        print(colored(f"Number of paragraphs used: {len(selected_paragraphs)}", "green"))
-
-        return final_script
-    else:
-        print(colored("[-] GPT returned an empty response.", "red"))
-        return None
+    return cleaned_script
 
 
 def get_search_terms(video_subject: str, amount: int, script: str, ai_model: str) -> List[str]:

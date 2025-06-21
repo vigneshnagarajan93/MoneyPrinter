@@ -12,7 +12,7 @@ import threading
 
 from typing import List
 from termcolor import colored
-from playsound import playsound
+# from playsound import playsound
 
 
 VOICES = [
@@ -200,8 +200,8 @@ def tts(
 
         save_audio_file(audio_base64_data, filename)
         print(colored(f"[+] Audio file saved successfully as '{filename}'", "green"))
-        if play_sound:
-            playsound(filename)
+        # if play_sound:
+        #     playsound(filename)
 
     except Exception as e:
         print(colored(f"[-] An error occurred during TTS: {e}", "red"))

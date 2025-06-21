@@ -94,6 +94,9 @@ def choose_random_song() -> str:
 
 
 def check_env_vars() -> None:
+    print("Loaded OPENAI_API_KEY =", os.getenv("OPENAI_API_KEY"))
+    print("Loaded PEXELS_API_KEY =", os.getenv("PEXELS_API_KEY"))
+
     """
     Checks if the necessary environment variables are set.
 
